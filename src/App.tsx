@@ -18,7 +18,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import html2canvas from 'html2canvas';
+import * as htmlToImage from 'html-to-image';
 import jsPDF from 'jspdf';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -61,6 +61,25 @@ const INITIAL_TEAM: Team = {
   wwcd: 0,
   placementPoints: 0,
   killPoints: 0
+};
+
+const COLORS = {
+  amber: "#f59e0b",
+  slate: {
+    50: "#f8fafc",
+    100: "#f1f5f9",
+    200: "#e2e8f0",
+    300: "#cbd5e1",
+    400: "#94a3b8",
+    500: "#64748b",
+    600: "#475569",
+    700: "#334155",
+    800: "#1e293b",
+    900: "#0f172a",
+    950: "#020617",
+  },
+  white: "#ffffff",
+  black: "#000000",
 };
 
 export default function App() {
@@ -135,46 +154,38 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       const element = previewRef.current;
-      
-      // html2canvas options for professional rendering
-      const canvas = await html2canvas(element, {
-        useCORS: true,
-        allowTaint: false, // Critical: must be false to allow toDataURL
-        scale: 2, 
-        backgroundColor: '#020617',
-        logging: false,
-        imageTimeout: 15000,
-        onclone: (clonedDoc) => {
-          const el = clonedDoc.getElementById('point-table-capture');
-          if (el) {
-            el.style.transform = 'none';
-            el.style.boxShadow = 'none';
-            el.style.borderRadius = '0';
-          }
-        }
-      });
-      
       const fileName = `ff-points-${tournament.title.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      const options = {
+        quality: 1.0,
+        pixelRatio: 2, // High resolution (2x)
+        backgroundColor: COLORS.slate[950],
+        style: {
+          transform: 'none',
+          boxShadow: 'none',
+        }
+      };
 
-      if (format === 'png' || format === 'jpg') {
-        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
-        const quality = format === 'jpg' ? 0.9 : 1.0;
-        const dataUrl = canvas.toDataURL(mimeType, quality);
-        
+      if (format === 'png') {
+        const dataUrl = await htmlToImage.toPng(element, options);
         const link = document.createElement('a');
-        link.setAttribute('download', `${fileName}.${format}`);
-        link.setAttribute('href', dataUrl);
-        document.body.appendChild(link);
+        link.download = `${fileName}.png`;
+        link.href = dataUrl;
         link.click();
-        document.body.removeChild(link);
+      } else if (format === 'jpg') {
+        const dataUrl = await htmlToImage.toJpeg(element, options);
+        const link = document.createElement('a');
+        link.download = `${fileName}.jpg`;
+        link.href = dataUrl;
+        link.click();
       } else if (format === 'pdf') {
-        const imgData = canvas.toDataURL('image/png');
+        const dataUrl = await htmlToImage.toPng(element, options);
         const pdf = new jsPDF({
-          orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+          orientation: element.offsetWidth > element.offsetHeight ? 'landscape' : 'portrait',
           unit: 'px',
-          format: [canvas.width / 2, canvas.height / 2]
+          format: [element.offsetWidth, element.offsetHeight]
         });
-        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
+        pdf.addImage(dataUrl, 'PNG', 0, 0, element.offsetWidth, element.offsetHeight);
         pdf.save(`${fileName}.pdf`);
       }
     } catch (error) {
@@ -414,37 +425,37 @@ export default function App() {
           >
             
             {/* Professional Background Layers */}
-            <div className="absolute inset-0 bg-[#020617]" />
+            <div className="absolute inset-0" style={{ backgroundColor: COLORS.slate[950] }} />
             <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
-            <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-amber-500/5 to-transparent skew-x-12 translate-x-20" />
-            <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-amber-500/10 blur-[120px] rounded-full" />
+            <div className="absolute top-0 right-0 w-1/2 h-full skew-x-12 translate-x-20" style={{ background: `linear-gradient(to left, ${COLORS.amber}1a, transparent)` }} />
+            <div className="absolute -bottom-20 -left-20 w-80 h-80 blur-[120px] rounded-full" style={{ backgroundColor: `${COLORS.amber}1a` }} />
             
             {/* Tech HUD Corner Accents */}
-            <div className="absolute top-4 left-4 w-12 h-12 border-t-2 border-l-2 border-amber-500/30" />
-            <div className="absolute top-4 right-4 w-12 h-12 border-t-2 border-r-2 border-amber-500/30" />
-            <div className="absolute bottom-4 left-4 w-12 h-12 border-b-2 border-l-2 border-amber-500/30" />
-            <div className="absolute bottom-4 right-4 w-12 h-12 border-b-2 border-r-2 border-amber-500/30" />
+            <div className="absolute top-4 left-4 w-12 h-12 border-t-2 border-l-2" style={{ borderColor: `${COLORS.amber}4d` }} />
+            <div className="absolute top-4 right-4 w-12 h-12 border-t-2 border-r-2" style={{ borderColor: `${COLORS.amber}4d` }} />
+            <div className="absolute bottom-4 left-4 w-12 h-12 border-b-2 border-l-2" style={{ borderColor: `${COLORS.amber}4d` }} />
+            <div className="absolute bottom-4 right-4 w-12 h-12 border-b-2 border-r-2" style={{ borderColor: `${COLORS.amber}4d` }} />
 
             {/* Broadcast Style Header */}
-            <div className="relative z-10 h-44 flex items-center justify-between px-16 border-b-2 border-amber-500/20 bg-[#020617]">
+            <div className="relative z-10 h-44 flex items-center justify-between px-16 border-b-2" style={{ borderColor: `${COLORS.amber}33`, backgroundColor: COLORS.slate[950] }}>
               <div className="flex flex-col">
                 <div className="flex items-center gap-3 mb-2">
-                  <div className="h-6 w-1 bg-amber-500 rounded-full" />
-                  <span className="text-amber-500 font-black tracking-[0.4em] text-sm italic uppercase">{tournament.subtitle}</span>
+                  <div className="h-6 w-1 rounded-full" style={{ backgroundColor: COLORS.amber }} />
+                  <span className="font-black tracking-[0.4em] text-sm italic uppercase" style={{ color: COLORS.amber }}>{tournament.subtitle}</span>
                 </div>
-                <h1 className="text-7xl font-black text-white italic tracking-tighter leading-none uppercase drop-shadow-2xl">
+                <h1 className="text-7xl font-black italic tracking-tighter leading-none uppercase drop-shadow-2xl" style={{ color: COLORS.white }}>
                   {tournament.title}
                 </h1>
               </div>
               
               <div className="flex items-center gap-10">
                 <div className="flex flex-col items-end">
-                  <span className="text-slate-500 text-[10px] uppercase font-black tracking-widest mb-1 italic">OFFICIAL RECORD</span>
-                  <div className="flex items-center gap-2 text-white font-black text-xl italic underline decoration-amber-500 decoration-2 underline-offset-4">
+                  <span className="text-[10px] uppercase font-black tracking-widest mb-1 italic" style={{ color: COLORS.slate[500] }}>OFFICIAL RECORD</span>
+                  <div className="flex items-center gap-2 font-black text-xl italic underline decoration-2 underline-offset-4" style={{ color: COLORS.white, textDecorationColor: COLORS.amber }}>
                     {tournament.date}
                   </div>
                 </div>
-                <div className="w-12 h-12 bg-amber-500 rounded-lg rotate-45 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.5)]">
+                <div className="w-12 h-12 rounded-lg rotate-45 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.5)]" style={{ backgroundColor: COLORS.amber }}>
                   <Trophy className="w-8 h-8 text-black -rotate-45" />
                 </div>
               </div>
@@ -452,7 +463,7 @@ export default function App() {
 
             {/* Table Content */}
             <div className="relative z-10 p-12 pt-8">
-              <div className="grid grid-cols-[100px_1fr_100px_100px_120px_120px_160px] bg-amber-500 text-black text-xs font-black tracking-[0.2em] p-4 px-10 uppercase mb-4 skew-x-[-12deg] mr-8 ml-4 shadow-[10px_10px_0_rgba(245,158,11,0.2)]">
+              <div className="grid grid-cols-[100px_1fr_100px_100px_120px_120px_160px] text-xs font-black tracking-[0.2em] p-4 px-10 uppercase mb-4 skew-x-[-12deg] mr-8 ml-4 shadow-[10px_10px_0_rgba(245,158,11,0.2)]" style={{ backgroundColor: COLORS.amber, color: COLORS.black }}>
                 <div className="text-center skew-x-[12deg]">RANK</div>
                 <div className="pl-4 skew-x-[12deg]">SQUAD NAME</div>
                 <div className="text-center skew-x-[12deg]">MATCH</div>
@@ -483,22 +494,26 @@ export default function App() {
                         }}
                         className={cn(
                           rowStyles,
-                          isTop3 ? "bg-white/5 border-l-4 border-amber-500" : "bg-slate-900/40 border-l-4 border-slate-700/50"
+                          "border-l-4"
                         )}
+                        style={{
+                           backgroundColor: isTop3 ? `${COLORS.white}0d` : `${COLORS.slate[900]}66`,
+                           borderLeftColor: isTop3 ? COLORS.amber : `${COLORS.slate[700]}80`
+                        }}
                       >
                       {/* Rank Column */}
                       <div className="flex justify-center relative">
                         {isTop3 && (
-                           <div className="absolute inset-0 bg-amber-500/10 blur-xl opacity-50" />
+                           <div className="absolute inset-0 blur-xl opacity-50" style={{ backgroundColor: `${COLORS.amber}1a` }} />
                         )}
                         <span className={cn(
                           "flex items-center justify-center font-black italic font-display",
                           isExtremeDensity ? "text-xl w-8 h-8" : isHighDensity ? "text-2xl w-10 h-10" : "text-4xl w-14 h-14",
-                          idx === 0 && "text-white scale-110 drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]",
-                          idx === 1 && "text-slate-300",
-                          idx === 2 && "text-amber-700",
-                          idx > 2 && "text-slate-600"
-                        )}>
+                          idx === 0 && "scale-110 drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]"
+                        )}
+                        style={{
+                           color: idx === 0 ? COLORS.white : idx === 1 ? COLORS.slate[300] : idx === 2 ? "#b45309" : COLORS.slate[600]
+                        }}>
                           #{idx + 1}
                         </span>
                       </div>
@@ -510,16 +525,22 @@ export default function App() {
                             src={team.logo} 
                             crossOrigin="anonymous"
                             className={cn(
-                              "rounded-md object-cover bg-slate-800 border-2 border-slate-700 shadow-xl",
+                              "rounded-md object-cover border-2 shadow-xl",
                               isExtremeDensity ? "w-10 h-10" : isHighDensity ? "w-12 h-12" : "w-16 h-16"
                             )} 
+                            style={{ 
+                               backgroundColor: COLORS.slate[800],
+                               borderColor: COLORS.slate[700]
+                            }}
                             alt="" 
                           />
                           {team.wwcd > 0 && (
                             <div className={cn(
-                              "absolute -top-2 -right-2 bg-white text-black font-black border border-black shadow-lg",
+                              "absolute -top-2 -right-2 font-black border shadow-lg",
                               isExtremeDensity ? "text-[8px] px-1" : "text-[10px] px-1.5 py-0.5"
-                            )}>
+                            )}
+                            style={{ backgroundColor: COLORS.white, color: COLORS.black, borderColor: COLORS.black }}
+                            >
                               BYH x{team.wwcd}
                             </div>
                           )}
@@ -527,31 +548,37 @@ export default function App() {
                         <span className={cn(
                           fontStyles,
                           "tracking-tight drop-shadow-sm",
-                          isTop3 ? "text-white" : "text-slate-400"
-                        )}>
+                        )}
+                        style={{
+                           color: isTop3 ? COLORS.white : COLORS.slate[400]
+                        }}>
                           {team.name}
                         </span>
                       </div>
 
                       {/* Stats */}
-                      <div className={cn("text-center font-black text-slate-500 tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")}>{team.matches}</div>
-                      <div className={cn("text-center font-black text-amber-500 tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")}>{team.wwcd}</div>
-                      <div className={cn("text-center font-black text-slate-400 tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")}>{team.placementPoints}</div>
-                      <div className={cn("text-center font-black text-slate-400 tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")}>{team.killPoints}</div>
+                      <div className={cn("text-center font-black tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")} style={{ color: COLORS.slate[500] }}>{team.matches}</div>
+                      <div className={cn("text-center font-black tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")} style={{ color: COLORS.amber }}>{team.wwcd}</div>
+                      <div className={cn("text-center font-black tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")} style={{ color: COLORS.slate[400] }}>{team.placementPoints}</div>
+                      <div className={cn("text-center font-black tabular-nums", isExtremeDensity ? "text-lg" : "text-2xl")} style={{ color: COLORS.slate[400] }}>{team.killPoints}</div>
                       
                       {/* Total Pts (Highlighted Column) */}
                       <div className="flex justify-center">
                          <div className={cn(
                            "rounded-sm text-center font-black font-display italic transition-all tabular-nums",
                            isExtremeDensity ? "min-w-20 px-3 py-1 text-2xl" : isHighDensity ? "min-w-24 px-4 py-1.5 text-3xl" : "min-w-28 px-5 py-2 text-5xl",
-                           idx === 0 ? "bg-amber-500 text-black shadow-[0_0_25px_rgba(245,158,11,0.4)]" : "bg-white/5 text-white"
-                         )}>
+                         )}
+                         style={{
+                            backgroundColor: idx === 0 ? COLORS.amber : `${COLORS.white}0d`,
+                            color: idx === 0 ? COLORS.black : COLORS.white,
+                            boxShadow: idx === 0 ? `0 0 25px ${COLORS.amber}66` : 'none'
+                         }}>
                             {total}
                          </div>
                       </div>
 
                       {/* Accent lines for rows */}
-                      <div className="absolute bottom-0 right-0 w-1/4 h-px bg-gradient-to-l from-amber-500/20 to-transparent" />
+                      <div className="absolute bottom-0 right-0 w-1/4 h-px" style={{ background: `linear-gradient(to left, ${COLORS.amber}33, transparent)` }} />
                     </motion.div>
                   );
                 })}
@@ -560,20 +587,20 @@ export default function App() {
             </div>
 
             {/* Footer Graphics */}
-            <div className="h-20 bg-[#020617] flex items-center justify-between px-16 border-t border-slate-800/50">
+            <div className="h-20 flex items-center justify-between px-16 border-t" style={{ backgroundColor: COLORS.slate[950], borderColor: `${COLORS.slate[800]}80` }}>
               <div className="flex items-center gap-6 opacity-40">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-amber-500 animate-pulse" />
-                  <span className="text-[10px] font-black tracking-[0.5em] text-white uppercase italic">Broadcast System Active</span>
+                  <div className="w-2 h-2 animate-pulse" style={{ backgroundColor: COLORS.amber }} />
+                  <span className="text-[10px] font-black tracking-[0.5em] uppercase italic" style={{ color: COLORS.white }}>Broadcast System Active</span>
                 </div>
-                <div className="w-24 h-px bg-slate-800" />
-                <span className="text-[10px] font-black tracking-[0.3em] text-slate-600 uppercase">SERVER: {tournament.location}</span>
+                <div className="w-24 h-px" style={{ backgroundColor: COLORS.slate[800] }} />
+                <span className="text-[10px] font-black tracking-[0.3em] uppercase" style={{ color: COLORS.slate[600] }}>SERVER: {tournament.location}</span>
               </div>
               
               <div className="text-right">
-                <span className="text-[10px] font-black tracking-widest text-slate-500 uppercase block mb-1">DESIGNED BY</span>
-                <span className="text-sm font-black text-white italic tracking-tighter uppercase px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded">
-                  FF <span className="text-amber-500">PRO TABLE</span> MAKER
+                <span className="text-[10px] font-black tracking-widest uppercase block mb-1" style={{ color: COLORS.slate[500] }}>DESIGNED BY</span>
+                <span className="text-sm font-black italic tracking-tighter uppercase px-3 py-1 border rounded" style={{ color: COLORS.white, backgroundColor: `${COLORS.amber}1a`, borderColor: `${COLORS.amber}33` }}>
+                  FF <span style={{ color: COLORS.amber }}>PRO TABLE</span> MAKER
                 </span>
               </div>
             </div>
