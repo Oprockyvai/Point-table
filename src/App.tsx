@@ -3,15 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import {
-  Trash2,
-  Download,
-  Trophy,
+import React, { useState, useRef, useCallback } from 'react';
+import { 
+  Plus, 
+  Trash2, 
+  Download, 
+  Trophy, 
+  Users, 
+  MapPin, 
+  Calendar,
   Image as ImageIcon,
+  ChevronUp,
   ChevronDown,
-  RefreshCw,
-  CheckCircle2
+  RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from 'html2canvas';
@@ -19,411 +23,15 @@ import jsPDF from 'jspdf';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// --- Utilities ---
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// --- Types ---
 interface Team {
   id: string;
   name: string;
-  logo: string;
-  matches: number;
-  wwcd: number;
-  placementPoints: number;
-  killPoints: number;
-}
-
-interface Tournament {
-  title: string;
-  subtitle: string;
-  date: string;
-  location: string;
-}
-
-const DEFAULT_TOURNAMENT: Tournament = {
-  title: "FREE FIRE CHAMPIONSHIP",
-  subtitle: "GRAND FINALS • DAY 01",
-  date: "OCTOBER 24, 2026",
-  location: "DHAKA, BANGLADESH"
-};
-
-export default function App() {
-  const [tournament, setTournament] = useState<Tournament>(DEFAULT_TOURNAMENT);
-  const [teams, setTeams] = useState<Team[]>(
-    Array.from({ length: 12 }, (_, i) => ({
-      id: crypto.randomUUID(),
-      name: i < 3 ? ["TEAM ELITE", "GOD-LIKE", "NINJA ESPORTS"][i] : `SQUAD ${i + 1}`,
-      logo: `https://api.dicebear.com/7.x/identicon/svg?seed=ff-team-${i}`,
-      matches: 0, wwcd: 0, placementPoints: 0, killPoints: 0
-    }))
-  );
-
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [densityTheme, setDensityTheme] = useState<'high' | 'comfortable'>('high');
-  const previewRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const logoCache = useRef<Record<string, string>>({});
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  // Pre-fetch all team logos as base64 so canvas capture works
-  const fetchBase64 = (url: string): Promise<string> =>
-    new Promise((resolve) => {
-      if (url.startsWith('data:')) { resolve(url); return; }
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const c = document.createElement('canvas');
-          c.width = img.naturalWidth || 64;
-          c.height = img.naturalHeight || 64;
-          c.getContext('2d')!.drawImage(img, 0, 0);
-          resolve(c.toDataURL('image/png'));
-        } catch { resolve(url); }
-      };
-      img.onerror = () => resolve(url);
-      img.src = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-    });
-
-  useEffect(() => {
-    teams.forEach(t => {
-      if (!logoCache.current[t.logo]) {
-        fetchBase64(t.logo).then(b64 => { logoCache.current[t.logo] = b64; });
-      }
-    });
-  }, [teams]);
-
-  // --- Density ---
-  const teamCount = teams.length;
-  const isHighDensity = teamCount > 15 || densityTheme === 'high';
-  const isExtremeDensity = teamCount > 30;
-
-  const rowStyles = cn(
-    "grid grid-cols-[100px_1fr_100px_100px_120px_120px_160px] items-center px-10 relative transition-all group overflow-hidden",
-    densityTheme === 'comfortable' && !isHighDensity ? "p-6" :
-    isExtremeDensity ? "p-1.5" :
-    isHighDensity ? "p-2.5" : "p-4"
-  );
-
-  const fontStyles = cn(
-    "font-black font-display uppercase italic",
-    densityTheme === 'comfortable' && !isHighDensity ? "text-4xl" :
-    isExtremeDensity ? "text-lg" : isHighDensity ? "text-2xl" : "text-3xl"
-  );
-
-  // --- Team Handlers ---
-  const addTeam = () => setTeams(prev => [...prev, {
-    id: crypto.randomUUID(),
-    name: `NEW TEAM ${prev.length + 1}`,
-    logo: `https://api.dicebear.com/7.x/identicon/svg?seed=${Date.now()}`,
-    matches: 0, wwcd: 0, placementPoints: 0, killPoints: 0
-  }]);
-
-  const updateTeam = (id: string, updates: Partial<Team>) =>
-    setTeams(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-
-  const removeTeam = (id: string) =>
-    setTeams(prev => prev.filter(t => t.id !== id));
-
-  const handleLogoUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => updateTeam(id, { logo: reader.result as string });
-    reader.readAsDataURL(file);
-  };
-
-  // --- Download ---
-  const triggerDownload = (dataUrl: string, filename: string) => {
-    const a = document.createElement('a');
-    a.download = filename;
-    a.href = dataUrl;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  const handleDownload = useCallback(async (format: 'png' | 'jpg' | 'jpeg' | 'pdf') => {
-    if (!previewRef.current) return;
-    setIsExporting(true);
-    setShowDropdown(false);
-
-    try {
-      const el = previewRef.current;
-      const baseName = `ff-points-${tournament.title.toLowerCase().replace(/\s+/g, '-')}`;
-      const SCALE = 2;
-
-      // Make sure all logos are cached
-      await Promise.all(teams.map(async t => {
-        if (!logoCache.current[t.logo]) {
-          logoCache.current[t.logo] = await fetchBase64(t.logo);
-        }
-      }));
-
-      const canvas = await html2canvas(el, {
-        scale: SCALE,
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: '#020617',
-        logging: false,
-        imageTimeout: 20000,
-        onclone: (clonedDoc: Document) => {
-          // 1. Stop animations
-          const s = clonedDoc.createElement('style');
-          s.textContent = `*, *::before, *::after { animation: none !important; transition: none !important; }`;
-          clonedDoc.head.appendChild(s);
-
-          // 2. Remove backdrop-blur (html2canvas can't render it)
-          clonedDoc.querySelectorAll<HTMLElement>('*').forEach(node => {
-            node.style.backdropFilter = 'none';
-            (node.style as any).webkitBackdropFilter = 'none';
-          });
-
-          // 3. Replace all external img URLs with cached base64
-          clonedDoc.querySelectorAll<HTMLImageElement>('img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            const cached = logoCache.current[src];
-            if (cached) img.src = cached;
-          });
-        }
-      });
-
-      if (format === 'png') {
-        triggerDownload(canvas.toDataURL('image/png', 1.0), `${baseName}.png`);
-      } else if (format === 'jpg' || format === 'jpeg') {
-        triggerDownload(canvas.toDataURL('image/jpeg', 0.95), `${baseName}.jpg`);
-      } else if (format === 'pdf') {
-        const img = canvas.toDataURL('image/png', 1.0);
-        const mmW = (canvas.width / SCALE) * 0.2646;
-        const mmH = (canvas.height / SCALE) * 0.2646;
-        const pdf = new jsPDF({
-          orientation: mmW > mmH ? 'landscape' : 'portrait',
-          unit: 'mm',
-          format: [mmW, mmH],
-          compress: true,
-        });
-        pdf.addImage(img, 'PNG', 0, 0, mmW, mmH);
-        pdf.save(`${baseName}.pdf`);
-      }
-
-      setExportSuccess(true);
-      setTimeout(() => setExportSuccess(false), 2500);
-    } catch (err) {
-      console.error('Export error:', err);
-      alert('Download failed: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsExporting(false);
-    }
-  }, [tournament.title, teams]);
-
-  const sortedTeams = [...teams].sort((a, b) => {
-    const tA = a.placementPoints + a.killPoints;
-    const tB = b.placementPoints + b.killPoints;
-    if (tB !== tA) return tB - tA;
-    if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd;
-    return b.killPoints - a.killPoints;
-  });
-
-  return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-[#020617] text-slate-200 font-sans">
-
-      {/* Sidebar */}
-      <aside className="w-full lg:w-80 shrink-0 border-r border-slate-700 bg-[#1e293b] p-6 overflow-y-auto no-scrollbar flex flex-col gap-8 shadow-2xl">
-        <header>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-amber-500 p-2 rounded-md shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-              <Trophy className="w-5 h-5 text-slate-900" />
-            </div>
-            <h1 className="text-xl font-black italic uppercase tracking-tight">FF <span className="text-amber-500">Maker</span></h1>
-          </div>
-          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest">High Density Esports Edition</p>
-        </header>
-
-        {/* Layout Style */}
-        <section>
-          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Layout Style</h3>
-          <div className="flex p-1 bg-[#0f172a] rounded-lg border border-slate-700">
-            {(['high', 'comfortable'] as const).map(v => (
-              <button key={v} onClick={() => setDensityTheme(v)}
-                className={cn("flex-1 py-1.5 text-[10px] font-black uppercase rounded transition-all",
-                  densityTheme === v ? "bg-amber-500 text-slate-900 shadow-lg" : "text-slate-500 hover:text-slate-300")}>
-                {v === 'high' ? 'High Density' : 'Comfortable'}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* Tournament Info */}
-        <section>
-          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Tournament Info</h3>
-          <div className="flex flex-col gap-3">
-            {[
-              { label: 'Title', key: 'title' as const },
-              { label: 'Subtitle', key: 'subtitle' as const },
-            ].map(({ label, key }) => (
-              <div key={key} className="space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">{label}</span>
-                <input className="high-density-input w-full" value={tournament[key]}
-                  onChange={e => setTournament({ ...tournament, [key]: e.target.value })} />
-              </div>
-            ))}
-            <div className="grid grid-cols-2 gap-2">
-              {[{ label: 'Date', key: 'date' as const }, { label: 'Location', key: 'location' as const }].map(({ label, key }) => (
-                <div key={key} className="space-y-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">{label}</span>
-                  <input className="high-density-input w-full" value={tournament[key]}
-                    onChange={e => setTournament({ ...tournament, [key]: e.target.value })} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Squad Data */}
-        <section className="flex-1 flex flex-col min-h-0">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Squad Data ({teams.length})</h3>
-            <button onClick={addTeam} className="text-amber-500 text-[10px] font-black uppercase hover:text-amber-400">+ Add Team</button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-2 no-scrollbar flex flex-col gap-3">
-            {teams.map((team, idx) => (
-              <motion.div layout key={team.id} className="high-density-card p-3 flex flex-col gap-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-amber-500 tracking-tighter uppercase italic">SQUAD #{String(idx + 1).padStart(2, '0')}</span>
-                  <button onClick={() => removeTeam(team.id)} className="text-slate-600 hover:text-red-500">
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-
-                <div className="flex gap-2">
-                  <div className="relative group shrink-0">
-                    <img src={team.logo} alt="" className="w-8 h-8 rounded bg-slate-800 object-cover border border-slate-700" />
-                    <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 cursor-pointer rounded transition-opacity">
-                      <ImageIcon className="w-3 h-3 text-white" />
-                      <input type="file" className="hidden" accept="image/*" onChange={e => handleLogoUpload(team.id, e)} />
-                    </label>
-                  </div>
-                  <input className="flex-1 bg-transparent border-b border-slate-700 focus:border-amber-500 text-xs font-black uppercase tracking-tight focus:outline-none"
-                    value={team.name} onChange={e => updateTeam(team.id, { name: e.target.value })} />
-                </div>
-
-                <div className="grid grid-cols-4 gap-1">
-                  {[
-                    { label: 'MTCH', key: 'matches' as const },
-                    { label: 'BOOYAH', key: 'wwcd' as const },
-                    { label: 'PLACE', key: 'placementPoints' as const },
-                    { label: 'KILLS', key: 'killPoints' as const },
-                  ].map(({ label, key }) => (
-                    <div key={key} className="flex flex-col gap-0.5">
-                      <label className={cn("text-[8px] font-black uppercase", key === 'placementPoints' ? 'text-amber-500/70' : 'text-slate-500')}>{label}</label>
-                      <input type="number"
-                        className="bg-slate-800 text-[10px] py-0.5 text-center rounded border border-slate-700 focus:outline-none focus:border-amber-500"
-                        value={team[key]}
-                        onChange={e => updateTeam(team.id, { [key]: parseInt(e.target.value) || 0 })} />
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-      </aside>
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 flex items-center justify-between px-8 bg-[#1e293b] border-b border-slate-700 shadow-lg shrink-0 relative z-40">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">TABLE VIEW</span>
-            <h2 className="text-sm font-black text-amber-500 italic uppercase">POINTS PREVIEW</h2>
-          </div>
-
-          {/* Download Controls */}
-          <div className="flex items-center gap-2" ref={dropdownRef}>
-            <AnimatePresence>
-              {exportSuccess && (
-                <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 border border-green-500/30 rounded text-green-400 text-[10px] font-black uppercase">
-                  <CheckCircle2 className="w-3 h-3" /> Downloaded!
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <div className="flex rounded overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.25)]">
-              <button disabled={isExporting} onClick={() => handleDownload('png')}
-                className="px-5 py-2 bg-amber-500 text-slate-900 font-black text-xs uppercase hover:bg-amber-400 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
-                {isExporting ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Exporting...</> : <><Download className="w-3.5 h-3.5" /> PNG</>}
-              </button>
-              <button disabled={isExporting} onClick={() => setShowDropdown(v => !v)}
-                className="px-2 bg-amber-600 text-slate-900 hover:bg-amber-500 border-l border-amber-700 transition-all disabled:opacity-60">
-                <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", showDropdown && "rotate-180")} />
-              </button>
-            </div>
-
-            <AnimatePresence>
-              {showDropdown && (
-                <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.97 }} transition={{ duration: 0.15 }}
-                  className="absolute right-8 top-14 w-56 bg-[#1e293b] border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-slate-700 bg-black/30">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Select Format</span>
-                  </div>
-                  {([
-                    { fmt: 'png' as const,  label: 'PNG Image',    desc: 'Lossless, best quality', icon: '🖼️' },
-                    { fmt: 'jpg' as const,  label: 'JPG Image',    desc: 'Small file, high quality', icon: '📷' },
-                    { fmt: 'jpeg' as const, label: 'JPEG Image',   desc: 'Same as JPG',             icon: '📸' },
-                    { fmt: 'pdf' as const,  label: 'PDF Document', desc: 'Print-ready, scalable',   icon: '📄' },
-                  ]).map(({ fmt, label, desc, icon }) => (
-                    <button key={fmt} disabled={isExporting} onClick={() => handleDownload(fmt)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-500/10 border-b border-slate-800/80 last:border-0 transition-all group disabled:opacity-50">
-                      <span className="text-lg">{icon}</span>
-                      <div className="text-left flex-1">
-                        <div className="text-xs font-black text-white group-hover:text-amber-400 transition-colors uppercase">{label}</div>
-                        <div className="text-[10px] text-slate-500">{desc}</div>
-                      </div>
-                      <Download className="w-3 h-3 text-slate-600 group-hover:text-amber-500 transition-colors" />
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </header>
-
-        {/* Preview */}
-        <div className="flex-1 bg-[#020617] p-8 flex items-center justify-center overflow-auto no-scrollbar">
-          <div ref={previewRef} id="point-table-capture"
-            className="w-[1080px] bg-black p-0 shrink-0 select-none shadow-[0_0_100px_rgba(0,0,0,0.8)] relative overflow-hidden">
-
-            {/* Background Layers */}
-            <div className="absolute inset-0 bg-[#020617]" />
-            <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '16px 16px' }} />
-            <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-amber-500/5 to-transparent skew-x-12 translate-x-20" />
-            <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-amber-500/10 blur-[120px] rounded-full" />
-
-            {/* Corner Accents */}
-            <div className="absolute top-4 left-4 w-12 h-12 border-t-2 border-l-2 border-amber-500/30" />
-            <div className="absolute top-4 right-4 w-12 h-12 border-t-2 border-r-2 border-amber-500/30" />
-            <div className="absolute bottom-4 left-4 w-12 h-12 border-b-2 border-l-2 border-amber-500/30" />
-            <div className="absolute bottom-4 right-4 w-12 h-12 border-b-2 border-r-2 border-amber-500/30" />
-
-            {/* Header */}
-            <div className="relative z-10 h-44 flex items-center justify-between px-16 border-b-2 border-amber-500/20 bg-black/40">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="h-6 w-1 bg-amber-500 rounded-full" />
-                  <span className="text-amber-500 font-black tracking-[0.4em] text-sm italic uppercase">{tournament.sub  name: string;
   logo: string; // Data URL or URL
   matches: number;
   wwcd: number;
@@ -467,55 +75,10 @@ export default function App() {
   );
   
   const [isExporting, setIsExporting] = useState(false);
-  const [exportSuccess, setExportSuccess] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
   const [densityTheme, setDensityTheme] = useState<'high' | 'comfortable'>('high');
   const previewRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // --- Logo Pre-fetch Cache ---
-  // Converts any external URL → base64 so html2canvas can render it
-  const logoCache = useRef<Record<string, string>>({});
-
-  const toBase64 = (url: string): Promise<string> =>
-    new Promise((resolve) => {
-      if (url.startsWith('data:')) { resolve(url); return; }
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const c = document.createElement('canvas');
-          c.width = img.naturalWidth || 64;
-          c.height = img.naturalHeight || 64;
-          c.getContext('2d')!.drawImage(img, 0, 0);
-          resolve(c.toDataURL('image/png'));
-        } catch { resolve(url); }
-      };
-      img.onerror = () => resolve(url);
-      img.src = url;
-    });
-
-  // Pre-cache logos whenever teams change
-  useEffect(() => {
-    teams.forEach(team => {
-      if (!logoCache.current[team.logo]) {
-        toBase64(team.logo).then(b64 => {
-          logoCache.current[team.logo] = b64;
-        });
-      }
-    });
-  }, [teams]);
+  // --- Dynamic Density Logic ---
   const teamCount = teams.length;
   const isHighDensity = teamCount > 15 || densityTheme === 'high';
   const isExtremeDensity = teamCount > 30;
@@ -563,109 +126,56 @@ export default function App() {
     }
   };
 
-  const handleDownload = useCallback(async (format: 'png' | 'jpg' | 'jpeg' | 'pdf') => {
+  const handleDownload = useCallback(async (format: 'png' | 'jpg' | 'pdf') => {
     if (!previewRef.current) return;
     setIsExporting(true);
-    setShowDropdown(false);
-
+    
     try {
-      const el = previewRef.current;
-      const fileName = `ff-points-${tournament.title.toLowerCase().replace(/\s+/g, '-')}`;
-      const SCALE = 3; // 3x → ~3240px wide, ultra-crisp
+      // Give time for any pending layout changes to settle
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Ensure all logos are pre-cached as base64 before capture
-      await Promise.all(
-        teams.map(async (team) => {
-          if (!logoCache.current[team.logo]) {
-            logoCache.current[team.logo] = await toBase64(team.logo);
-          }
-        })
-      );
-
-      const html2canvas = (await import('html2canvas')).default;
-
-      const canvas = await html2canvas(el, {
-        scale: SCALE,
+      const element = previewRef.current;
+      const canvas = await html2canvas(element, {
         useCORS: true,
-        allowTaint: false,
+        allowTaint: true,
+        scale: 2, // High resolution (2x)
         backgroundColor: '#020617',
         logging: false,
-        imageTimeout: 20000,
-        onclone: (_doc, clonedEl) => {
-          // 1. Freeze all animations
-          const style = _doc.createElement('style');
-          style.textContent = `
-            *, *::before, *::after {
-              animation: none !important;
-              transition: none !important;
-            }
-            /* Replace backdrop-blur with solid bg so it renders */
-            .\\!backdrop-blur-sm, [class*="backdrop"] {
-              backdrop-filter: none !important;
-              -webkit-backdrop-filter: none !important;
-            }
-          `;
-          _doc.head.appendChild(style);
-
-          // 2. Patch backdrop-blur elements inline
-          clonedEl.querySelectorAll<HTMLElement>('*').forEach(el => {
-            const computed = window.getComputedStyle(el);
-            if (computed.backdropFilter && computed.backdropFilter !== 'none') {
-              el.style.backdropFilter = 'none';
-              el.style.webkitBackdropFilter = 'none';
-              // Darken the bg slightly to compensate for lost blur
-              if (!el.style.backgroundColor || el.style.backgroundColor === 'transparent') {
-                el.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-              }
-            }
-          });
-
-          // 3. Swap all external img src → cached base64
-          clonedEl.querySelectorAll<HTMLImageElement>('img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            if (logoCache.current[src]) {
-              img.src = logoCache.current[src];
-            }
-          });
+        onclone: (clonedDoc) => {
+          const el = clonedDoc.getElementById('point-table-capture');
+          if (el) {
+            // Remove some problematic styles for capture
+            el.style.boxShadow = 'none';
+            el.style.borderRadius = '0';
+          }
         }
       });
+      
+      const fileName = `ff-points-${tournament.title.toLowerCase().replace(/\s+/g, '-')}`;
 
-      if (format === 'png') {
-        triggerDownload(canvas.toDataURL('image/png', 1.0), `${fileName}.png`);
-      } else if (format === 'jpg' || format === 'jpeg') {
-        triggerDownload(canvas.toDataURL('image/jpeg', 0.95), `${fileName}.jpg`);
+      if (format === 'png' || format === 'jpg') {
+        const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+        const link = document.createElement('a');
+        link.download = `${fileName}.${format}`;
+        link.href = canvas.toDataURL(mimeType, 1.0);
+        link.click();
       } else if (format === 'pdf') {
-        const imgData = canvas.toDataURL('image/png', 1.0);
-        const mmW = (canvas.width / SCALE) * 0.2646;
-        const mmH = (canvas.height / SCALE) * 0.2646;
+        const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF({
-          orientation: mmW > mmH ? 'landscape' : 'portrait',
-          unit: 'mm',
-          format: [mmW, mmH],
-          compress: true,
+          orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+          unit: 'px',
+          format: [canvas.width / 2, canvas.height / 2] // Divide by 2 because of scale:2
         });
-        pdf.addImage(imgData, 'PNG', 0, 0, mmW, mmH);
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
         pdf.save(`${fileName}.pdf`);
       }
-
-      setExportSuccess(true);
-      setTimeout(() => setExportSuccess(false), 2500);
     } catch (error) {
-      console.error('Export failed:', error);
-      alert('Download failed. Please try again.');
+      console.error("Export failed:", error);
+      alert("Failed to generate image. Please try again.");
     } finally {
       setIsExporting(false);
     }
-  }, [tournament.title, teams]);
-
-  const triggerDownload = (dataUrl: string, filename: string) => {
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  }, [tournament.title, tournament.subtitle]);
 
   const sortedTeams = [...teams].sort((a, b) => {
     const totalA = a.placementPoints + a.killPoints;
@@ -843,96 +353,47 @@ export default function App() {
 
       {/* --- Preview & Action Area --- */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 flex items-center justify-between px-8 bg-[#1e293b] border-b border-slate-700 shadow-lg shrink-0 relative z-40">
+        <header className="h-16 flex items-center justify-between px-8 bg-[#1e293b] border-b border-slate-700 shadow-lg shrink-0">
           <div className="flex items-center gap-3">
              <div className="flex flex-col">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">TABLE VIEW</span>
               <h2 className="text-sm font-black text-amber-500 italic uppercase">POINTS PREVIEW</h2>
             </div>
           </div>
-          <div className="flex gap-2" ref={dropdownRef}>
-              {/* Success Toast */}
-              <AnimatePresence>
-                {exportSuccess && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/30 rounded text-green-400 text-xs font-black uppercase"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Downloaded!
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Main Download Button */}
-              <div className="flex rounded overflow-hidden shadow-[0_0_20px_rgba(245,158,11,0.3)]">
-                <button 
+          <div className="flex gap-2">
+            <div className="flex p-0.5 bg-slate-800 rounded-lg border border-slate-700 shadow-inner">
+               <button 
                   disabled={isExporting}
                   onClick={() => handleDownload('png')}
-                  className="px-5 py-2 bg-amber-500 text-slate-900 font-black text-xs uppercase hover:bg-amber-400 active:scale-95 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {isExporting ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      EXPORTING...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-3.5 h-3.5" />
-                      PNG
-                    </>
-                  )}
-                </button>
-
-                {/* Format Picker Toggle */}
-                <button
+                  className="px-4 py-2 hover:bg-slate-700 text-slate-200 rounded font-black text-[10px] uppercase transition-all flex items-center gap-1.5"
+               >
+                 <Download className="w-3 h-3 text-amber-500" />
+                 PNG
+               </button>
+               <div className="w-px h-4 self-center bg-slate-700" />
+               <button 
                   disabled={isExporting}
-                  onClick={() => setShowDropdown(v => !v)}
-                  className="px-2 bg-amber-600 text-slate-900 hover:bg-amber-500 border-l border-amber-700 transition-all disabled:opacity-60"
-                >
-                  <ChevronDown className={cn("w-4 h-4 transition-transform", showDropdown && "rotate-180")} />
-                </button>
+                  onClick={() => handleDownload('jpg')}
+                  className="px-4 py-2 hover:bg-slate-700 text-slate-200 rounded font-black text-[10px] uppercase transition-all flex items-center gap-1.5"
+               >
+                 JPG
+               </button>
+               <div className="w-px h-4 self-center bg-slate-700" />
+               <button 
+                  disabled={isExporting}
+                  onClick={() => handleDownload('pdf')}
+                  className="px-4 py-2 hover:bg-slate-700 text-slate-200 rounded font-black text-[10px] uppercase transition-all flex items-center gap-1.5"
+               >
+                 PDF
+               </button>
+            </div>
+            
+            {isExporting && (
+              <div className="flex items-center gap-2 px-3 animate-pulse">
+                <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
+                <span className="text-[10px] font-black text-amber-500 uppercase italic">Exporting...</span>
               </div>
-
-              {/* Dropdown Panel */}
-              <AnimatePresence>
-                {showDropdown && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-8 top-14 w-56 bg-[#1e293b] border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden"
-                  >
-                    <div className="px-4 py-2.5 border-b border-slate-700 bg-black/30">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Select Export Format</span>
-                    </div>
-
-                    {[
-                      { format: 'png' as const, label: 'PNG Image', desc: 'Best quality, transparent bg', icon: '🖼️' },
-                      { format: 'jpg' as const, label: 'JPG / JPEG', desc: 'Smaller file size', icon: '📷' },
-                      { format: 'jpeg' as const, label: 'JPEG (Alt)', desc: 'Same as JPG', icon: '📸' },
-                      { format: 'pdf' as const, label: 'PDF Document', desc: 'Print-ready, scalable', icon: '📄' },
-                    ].map(({ format, label, desc, icon }) => (
-                      <button
-                        key={format}
-                        onClick={() => handleDownload(format)}
-                        disabled={isExporting}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-500/10 border-b border-slate-800/80 last:border-0 transition-all group disabled:opacity-50"
-                      >
-                        <span className="text-lg">{icon}</span>
-                        <div className="text-left flex-1">
-                          <div className="text-xs font-black text-white group-hover:text-amber-400 transition-colors uppercase tracking-wide">{label}</div>
-                          <div className="text-[10px] text-slate-500">{desc}</div>
-                        </div>
-                        <Download className="w-3 h-3 text-slate-600 group-hover:text-amber-500 transition-colors" />
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+            )}
           </div>
         </header>
 
@@ -957,7 +418,7 @@ export default function App() {
             <div className="absolute bottom-4 right-4 w-12 h-12 border-b-2 border-r-2 border-amber-500/30" />
 
             {/* Broadcast Style Header */}
-            <div className="relative z-10 h-44 flex items-center justify-between px-16 border-b-2 border-amber-500/20 bg-black/40 backdrop-blur-sm">
+            <div className="relative z-10 h-44 flex items-center justify-between px-16 border-b-2 border-amber-500/20 bg-[#020617]">
               <div className="flex flex-col">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="h-6 w-1 bg-amber-500 rounded-full" />
@@ -1091,7 +552,7 @@ export default function App() {
             </div>
 
             {/* Footer Graphics */}
-            <div className="h-20 bg-black/80 flex items-center justify-between px-16 border-t border-slate-800/50">
+            <div className="h-20 bg-[#020617] flex items-center justify-between px-16 border-t border-slate-800/50">
               <div className="flex items-center gap-6 opacity-40">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 bg-amber-500 animate-pulse" />
