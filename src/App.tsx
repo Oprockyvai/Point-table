@@ -131,20 +131,23 @@ export default function App() {
     setIsExporting(true);
     
     try {
-      // Give time for any pending layout changes to settle
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Small delay to ensure any layout transitions or images are fully ready
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const element = previewRef.current;
+      
+      // html2canvas options for professional rendering
       const canvas = await html2canvas(element, {
         useCORS: true,
-        allowTaint: true,
-        scale: 2, // High resolution (2x)
+        allowTaint: false, // Critical: must be false to allow toDataURL
+        scale: 2, 
         backgroundColor: '#020617',
         logging: false,
+        imageTimeout: 15000,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById('point-table-capture');
           if (el) {
-            // Remove some problematic styles for capture
+            el.style.transform = 'none';
             el.style.boxShadow = 'none';
             el.style.borderRadius = '0';
           }
@@ -155,23 +158,28 @@ export default function App() {
 
       if (format === 'png' || format === 'jpg') {
         const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+        const quality = format === 'jpg' ? 0.9 : 1.0;
+        const dataUrl = canvas.toDataURL(mimeType, quality);
+        
         const link = document.createElement('a');
-        link.download = `${fileName}.${format}`;
-        link.href = canvas.toDataURL(mimeType, 1.0);
+        link.setAttribute('download', `${fileName}.${format}`);
+        link.setAttribute('href', dataUrl);
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
       } else if (format === 'pdf') {
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF({
           orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
           unit: 'px',
-          format: [canvas.width / 2, canvas.height / 2] // Divide by 2 because of scale:2
+          format: [canvas.width / 2, canvas.height / 2]
         });
         pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 2, canvas.height / 2);
         pdf.save(`${fileName}.pdf`);
       }
     } catch (error) {
       console.error("Export failed:", error);
-      alert("Failed to generate image. Please try again.");
+      alert("Something went wrong while generating the image. Please try again or use another browser if the issue persists.");
     } finally {
       setIsExporting(false);
     }
