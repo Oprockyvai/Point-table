@@ -151,35 +151,35 @@ export default function App() {
     
     try {
       // Small delay to ensure any layout transitions or images are fully ready
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       const element = previewRef.current;
       const fileName = `ff-points-${tournament.title.toLowerCase().replace(/\s+/g, '-')}`;
       
       const options = {
         quality: 1.0,
-        pixelRatio: 2, // High resolution (2x)
+        pixelRatio: 3, // Very high resolution for crisp lines
         backgroundColor: COLORS.slate[950],
         style: {
           transform: 'none',
           boxShadow: 'none',
-        }
+          margin: '0',
+        },
+        // Force the capture library to respect the exact dimensions
+        width: element.offsetWidth,
+        height: element.offsetHeight,
       };
 
+      let dataUrl = '';
       if (format === 'png') {
-        const dataUrl = await htmlToImage.toPng(element, options);
-        const link = document.createElement('a');
-        link.download = `${fileName}.png`;
-        link.href = dataUrl;
-        link.click();
+        dataUrl = await htmlToImage.toPng(element, options);
       } else if (format === 'jpg') {
-        const dataUrl = await htmlToImage.toJpeg(element, options);
-        const link = document.createElement('a');
-        link.download = `${fileName}.jpg`;
-        link.href = dataUrl;
-        link.click();
+        dataUrl = await htmlToImage.toJpeg(element, options);
       } else if (format === 'pdf') {
-        const dataUrl = await htmlToImage.toPng(element, options);
+        dataUrl = await htmlToImage.toPng(element, options);
+      }
+
+      if (format === 'pdf') {
         const pdf = new jsPDF({
           orientation: element.offsetWidth > element.offsetHeight ? 'landscape' : 'portrait',
           unit: 'px',
@@ -187,10 +187,17 @@ export default function App() {
         });
         pdf.addImage(dataUrl, 'PNG', 0, 0, element.offsetWidth, element.offsetHeight);
         pdf.save(`${fileName}.pdf`);
+      } else {
+        const link = document.createElement('a');
+        link.download = `${fileName}.${format}`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       }
     } catch (error) {
       console.error("Export failed:", error);
-      alert("Something went wrong while generating the image. Please try again or use another browser if the issue persists.");
+      alert("Export failed. This might be due to a browser restriction or complex styles. Please try taking a manual screenshot if the problem persists.");
     } finally {
       setIsExporting(false);
     }
@@ -606,7 +613,7 @@ export default function App() {
             </div>
 
             {/* Scanning Line Effect */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-50" style={{ backgroundSize: '100% 2px, 3px 100%' }} />
+            <div className="absolute inset-0 pointer-events-none opacity-[0.03] z-50" style={{ backgroundImage: 'linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%), linear-gradient(90deg, rgba(255,0,0,0.06), rgba(0,255,0,0.02), rgba(0,0,255,0.06))', backgroundSize: '100% 2px, 3px 100%' }} />
           </div>
         </div>
       </main>
